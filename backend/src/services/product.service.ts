@@ -30,10 +30,7 @@ async function ensureCategoryBelongsToCompany(categoryId: number, companyId: num
 
 export async function createProduct(data: CreateProductData) {
   if (data.categoryId != null) await ensureCategoryBelongsToCompany(data.categoryId, data.companyId);
-  return prisma.product.create({
-    data: { name: data.name, sku: data.sku, description: data.description ?? '', categoryId: data.categoryId ?? null, price: data.price, cost: data.cost ?? 0, stock: data.stock, minStock: data.minStock ?? 5, imageUrl: data.imageUrl ?? null, status: data.status ?? 'active', companyId: data.companyId },
-    include: { category: { select: { id: true, name: true } } },
-  });
+  return prisma.product.create({ data: { name: data.name, sku: data.sku, description: data.description ?? '', categoryId: data.categoryId ?? null, price: data.price, cost: data.cost ?? 0, stock: data.stock, minStock: data.minStock ?? 5, imageUrl: data.imageUrl ?? null, status: data.status ?? 'active', companyId: data.companyId }, include: { category: { select: { id: true, name: true } } } });
 }
 
 export async function updateProduct(id: number, companyId: number, data: UpdateProductData) {
@@ -44,5 +41,10 @@ export async function updateProduct(id: number, companyId: number, data: UpdateP
 
 export async function deleteProduct(id: number, companyId: number) {
   await getProductById(id, companyId);
+  const salesCount = await prisma.saleItem.count({ where: { productId: id, sale: { companyId } } });
+  const movementCount = await prisma.inventoryMovement.count({ where: { productId: id, companyId } });
+  if (salesCount > 0 || movementCount > 0) {
+    throw new AppError('No se puede eliminar un producto con historial. Desactívalo en su lugar.', 409);
+  }
   await prisma.product.delete({ where: { id } });
 }
