@@ -19,19 +19,27 @@ import configRoutes from './routes/config.routes';
 const app = express();
 
 // ── Seguridad y parsers ──────────────────────────────────────────────────────
+app.disable('x-powered-by');
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
 app.use(helmet());
+
+const allowedOrigin = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:5173',
+    origin: allowedOrigin,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Prevent oversized JSON/form payloads from consuming server resources.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ── Logger ───────────────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('dev'));
+  // Do not log request bodies or authorization headers.
+  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 }
 
 // ── Swagger docs ─────────────────────────────────────────────────────────────
