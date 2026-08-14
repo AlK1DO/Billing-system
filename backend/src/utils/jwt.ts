@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { JwtPayload } from '../middlewares/authenticate';
+import type { JwtPayload } from '../middlewares/authenticate';
 
 const JWT_ALGORITHM = 'HS256' as const;
 
