@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { AppError } from '../utils/AppError';
+import { verifyToken } from '../utils/jwt';
 
 export interface JwtPayload {
   userId: number;
@@ -9,7 +9,6 @@ export interface JwtPayload {
   companyId: number;
 }
 
-// Extiende el tipo Request de Express para incluir el usuario autenticado
 declare global {
   namespace Express {
     interface Request {
@@ -25,13 +24,23 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
     return next(new AppError('Token no proporcionado', 401));
   }
 
-  const token = authHeader.split(' ')[1];
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) {
+    return next(new AppError('Token no proporcionado', 401));
+  }
 
   try {
-    const secret = process.env.JWT_SECRET;
-    if (!secret) throw new Error('JWT_SECRET no configurado');
+    const payload = verifyToken(token);
 
-    const payload = jwt.verify(token, secret) as JwtPayload;
+    if (
+      typeof payload.userId !== 'number' ||
+      typeof payload.companyId !== 'number' ||
+      typeof payload.email !== 'string' ||
+      typeof payload.role !== 'string'
+    ) {
+      return next(new AppError('Token inválido o expirado', 401));
+    }
+
     req.user = payload;
     next();
   } catch {
