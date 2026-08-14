@@ -7,9 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────
-// EMPRESA
-// ─────────────────────────────────────────────
 model Company {
   id      Int     @id @default(autoincrement())
   name    String  @db.VarChar(150)
@@ -23,21 +20,19 @@ model Company {
   updatedAt DateTime @updatedAt
 
   users     User[]
+  categories Category[]
   products  Product[]
   customers Customer[]
   sales     Sale[]
   movements InventoryMovement[]
 }
 
-// ─────────────────────────────────────────────
-// USUARIO
-// ─────────────────────────────────────────────
 model User {
   id           Int     @id @default(autoincrement())
   name         String  @db.VarChar(100)
   email        String  @unique @db.VarChar(150)
   passwordHash String  @db.VarChar(255)
-  role         String  @default("seller") @db.VarChar(20) // admin | seller
+  role         String  @default("seller") @db.VarChar(20)
   isActive     Boolean @default(true)
 
   companyId Int
@@ -50,20 +45,19 @@ model User {
   movements InventoryMovement[]
 }
 
-// ─────────────────────────────────────────────
-// CATEGORÍA
-// ─────────────────────────────────────────────
 model Category {
   id        Int      @id @default(autoincrement())
-  name      String   @unique @db.VarChar(100)
+  name      String   @db.VarChar(100)
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   createdAt DateTime @default(now())
 
   products Product[]
+
+  @@unique([name, companyId])
+  @@index([companyId])
 }
 
-// ─────────────────────────────────────────────
-// PRODUCTO
-// ─────────────────────────────────────────────
 model Product {
   id          Int      @id @default(autoincrement())
   name        String   @db.VarChar(200)
@@ -74,7 +68,7 @@ model Product {
   stock       Int      @default(0)
   minStock    Int      @default(0)
   imageUrl    String?  @db.VarChar(500)
-  status      String   @default("active") @db.VarChar(20) // active | inactive
+  status      String   @default("active") @db.VarChar(20)
 
   categoryId Int?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: NoAction)
@@ -90,15 +84,13 @@ model Product {
 
   @@unique([sku, companyId])
   @@index([companyId, status])
+  @@index([categoryId])
 }
 
-// ─────────────────────────────────────────────
-// CLIENTE
-// ─────────────────────────────────────────────
 model Customer {
   id             Int       @id @default(autoincrement())
   name           String    @db.VarChar(150)
-  documentType   String    @db.VarChar(20) // DNI | RUC | CE | PASSPORT
+  documentType   String    @db.VarChar(20)
   documentNumber String    @db.VarChar(20)
   phone          String?   @db.VarChar(20)
   email          String?   @db.VarChar(150)
@@ -118,37 +110,27 @@ model Customer {
   @@index([companyId])
 }
 
-// ─────────────────────────────────────────────
-// VENTA
-// ─────────────────────────────────────────────
 model Sale {
   id            Int     @id @default(autoincrement())
   receiptNumber String  @unique @db.VarChar(30)
-  status        String  @default("completed") @db.VarChar(20) // pending | completed | cancelled
+  status        String  @default("completed") @db.VarChar(20)
   subtotal      Decimal @db.Decimal(12, 2)
   igv           Decimal @db.Decimal(12, 2)
   total         Decimal @db.Decimal(12, 2)
   notes         String? @db.VarChar(500)
-
-  // Snapshot del cliente al momento de la venta
   customerName     String @db.VarChar(150)
   customerDocument String @db.VarChar(20)
-
-  // Snapshot del vendedor al momento de la venta
   sellerName String @db.VarChar(100)
 
   customerId Int
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
   sellerId Int
   seller   User @relation(fields: [sellerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
   companyId Int
   company   Company @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   items     SaleItem[]
   movements InventoryMovement[]
 
@@ -156,54 +138,39 @@ model Sale {
   @@index([companyId, status])
 }
 
-// ─────────────────────────────────────────────
-// ÍTEM DE VENTA
-// ─────────────────────────────────────────────
 model SaleItem {
   id        Int     @id @default(autoincrement())
   quantity  Int
   unitPrice Decimal @db.Decimal(10, 2)
   subtotal  Decimal @db.Decimal(10, 2)
-
-  // Snapshot del producto al momento de la venta
   productName String @db.VarChar(200)
   productSku  String @db.VarChar(50)
 
   saleId Int
   sale   Sale @relation(fields: [saleId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
   productId Int
   product   Product @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([productId])
 }
 
-// ─────────────────────────────────────────────
-// MOVIMIENTO DE INVENTARIO
-// ─────────────────────────────────────────────
 model InventoryMovement {
   id            Int     @id @default(autoincrement())
-  type          String  @db.VarChar(20) // entry | sale | return | adjustment
-  quantity      Int     // positivo = entrada, negativo = salida
+  type          String  @db.VarChar(20)
+  quantity      Int
   previousStock Int
   currentStock  Int
   reason        String? @db.VarChar(300)
-
-  // Snapshot del producto al momento del movimiento
   productName String @db.VarChar(200)
   productSku  String @db.VarChar(50)
-
-  // Snapshot del usuario que lo ejecutó
   userName String @db.VarChar(100)
 
   productId Int
   product   Product @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
   userId Int
   user   User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
   companyId Int
   company   Company @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  // null para movimientos manuales, ID de venta para los originados por una venta
   saleId Int?
   sale   Sale? @relation(fields: [saleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -211,4 +178,5 @@ model InventoryMovement {
 
   @@index([companyId, createdAt])
   @@index([productId])
+  @@index([saleId])
 }
