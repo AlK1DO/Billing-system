@@ -11,8 +11,6 @@ import {
 } from '../validators/product.validator';
 
 const router = Router();
-
-// Todas las rutas requieren autenticación
 router.use(authenticate);
 
 /**
@@ -27,18 +25,18 @@ router.use(authenticate);
  *         schema: { type: string }
  *         description: Buscar por nombre o SKU
  *       - in: query
- *         name: category
- *         schema: { type: string }
- *         description: Filtrar por categoría
+ *         name: categoryId
+ *         schema: { type: integer }
+ *         description: Filtrar por ID de categoría
  *       - in: query
  *         name: status
  *         schema: { type: string, enum: [active, inactive] }
  *       - in: query
  *         name: page
- *         schema: { type: integer, default: 1 }
+ *         schema: { type: integer, default: 1, minimum: 1 }
  *       - in: query
  *         name: limit
- *         schema: { type: integer, default: 20 }
+ *         schema: { type: integer, default: 20, minimum: 1 }
  *     responses:
  *       200:
  *         description: Lista paginada de productos
@@ -48,12 +46,8 @@ router.use(authenticate);
  *               type: object
  *               properties:
  *                 success: { type: boolean }
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Product'
- *                 meta:
- *                   $ref: '#/components/schemas/PaginationMeta'
+ *                 data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+ *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
  */
 router.get('/', validate(productQuerySchema), productController.getProducts);
 
@@ -67,19 +61,14 @@ router.get('/', validate(productQuerySchema), productController.getProducts);
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema: { type: integer }
  *     responses:
  *       200:
- *         description: Datos del producto
+ *         description: Producto encontrado
  *         content:
  *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 data: { $ref: '#/components/schemas/Product' }
- *       404:
- *         description: Producto no encontrado
+ *             schema: { type: object, properties: { success: { type: boolean }, data: { $ref: '#/components/schemas/Product' } } }
+ *       404: { description: Producto no encontrado }
  */
 router.get('/:id', validate(productParamsSchema), productController.getProduct);
 
@@ -94,29 +83,22 @@ router.get('/:id', validate(productParamsSchema), productController.getProduct);
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             required: [name, sku, price, stock]
- *             properties:
- *               name: { type: string }
- *               sku: { type: string }
- *               description: { type: string }
- *               price: { type: number }
- *               stock: { type: integer }
- *               minStock: { type: integer }
- *               category: { type: string }
- *               imageUrl: { type: string }
+ *             $ref: '#/components/schemas/CreateProductRequest'
+ *           example:
+ *             name: Laptop Lenovo IdeaPad
+ *             sku: LEN-001
+ *             description: Laptop para oficina
+ *             price: 2499.90
+ *             cost: 2000.00
+ *             stock: 10
+ *             minStock: 3
+ *             categoryId: 1
+ *             imageUrl: https://example.com/laptop.jpg
  *     responses:
- *       201:
- *         description: Producto creado
- *       409:
- *         description: SKU ya existe
+ *       201: { description: Producto creado }
+ *       409: { description: SKU ya existe }
  */
-router.post(
-  '/',
-  authorize('admin'),
-  validate(createProductSchema),
-  productController.createProduct
-);
+router.post('/', authorize('admin'), validate(createProductSchema), productController.createProduct);
 
 /**
  * @swagger
@@ -128,32 +110,17 @@ router.post(
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema: { type: integer }
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name: { type: string }
- *               description: { type: string }
- *               price: { type: number }
- *               stock: { type: integer }
- *               minStock: { type: integer }
- *               category: { type: string }
- *               status: { type: string, enum: [active, inactive] }
- *               imageUrl: { type: string }
+ *           schema: { $ref: '#/components/schemas/UpdateProductRequest' }
  *     responses:
- *       200:
- *         description: Producto actualizado
+ *       200: { description: Producto actualizado }
+ *       404: { description: Producto no encontrado }
  */
-router.put(
-  '/:id',
-  authorize('admin'),
-  validate(updateProductSchema),
-  productController.updateProduct
-);
+router.put('/:id', authorize('admin'), validate(updateProductSchema), productController.updateProduct);
 
 /**
  * @swagger
@@ -165,18 +132,11 @@ router.put(
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema: { type: integer }
  *     responses:
- *       200:
- *         description: Producto eliminado
- *       404:
- *         description: Producto no encontrado
+ *       200: { description: Producto eliminado }
+ *       404: { description: Producto no encontrado }
  */
-router.delete(
-  '/:id',
-  authorize('admin'),
-  validate(productParamsSchema),
-  productController.deleteProduct
-);
+router.delete('/:id', authorize('admin'), validate(productParamsSchema), productController.deleteProduct);
 
 export default router;
