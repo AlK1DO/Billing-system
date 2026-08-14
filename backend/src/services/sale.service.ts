@@ -6,7 +6,6 @@ import { JwtPayload } from '../middlewares/authenticate';
 import { Prisma } from '@prisma/client';
 
 const IGV_RATE = 0.18;
-// Máximo de reintentos si se produce una colisión en receiptNumber
 const MAX_RECEIPT_RETRIES = 3;
 
 interface CreateSaleDto {
@@ -54,33 +53,26 @@ export async function getSales(companyId: number, query: SaleQuery) {
 }
 
 export async function getSaleById(id: number, companyId: number) {
-  const sale = await prisma.sale.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-
+  const sale = await prisma.sale.findUnique({ where: { id }, include: { items: true } });
   if (!sale) throw new AppError('Venta no encontrada', 404);
   if (sale.companyId !== companyId) throw new AppError('No autorizado', 403);
-
   return sale;
 }
 
 export async function createSale(input: CreateSaleDto, seller: JwtPayload) {
-  // Obtener el nombre real del vendedor desde la base de datos
   const sellerUser = await prisma.user.findUnique({
     where: { id: seller.userId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, companyId: true, isActive: true },
   });
-  if (!sellerUser) throw new AppError('Usuario vendedor no encontrado', 404);
+  if (!sellerUser || !sellerUser.isActive || sellerUser.companyId !== seller.companyId) {
+    throw new AppError('Usuario vendedor no válido', 403);
+  }
 
-  // Intentar crear la venta con reintentos ante colisión de receiptNumber
   for (let attempt = 0; attempt < MAX_RECEIPT_RETRIES; attempt++) {
     const receiptNumber = generateReceiptNumber('F');
-
     try {
       return await _createSaleInTransaction(input, seller, sellerUser.name, receiptNumber);
     } catch (err: unknown) {
-      // P2002 en el campo receiptNumber → reintentar con un nuevo número
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
         err.code === 'P2002' &&
@@ -93,11 +85,10 @@ export async function createSale(input: CreateSaleDto, seller: JwtPayload) {
         }
         continue;
       }
-      throw err; // Cualquier otro error se propaga normalmente
+      throw err;
     }
   }
 
-  // TypeScript requiere un return explícito aunque el loop siempre retorna o lanza
   throw new AppError('Error inesperado al crear la venta', 500);
 }
 
@@ -107,117 +98,106 @@ async function _createSaleInTransaction(
   sellerName: string,
   receiptNumber: string
 ) {
-  return prisma.$transaction(async (tx) => {
-    // 1. Verificar cliente
-    const customer = await tx.customer.findUnique({
-      where: { id: input.customerId },
-    });
-    if (!customer) throw new AppError('Cliente no encontrado', 404);
-    if (customer.companyId !== seller.companyId)
-      throw new AppError('No autorizado', 403);
+  return prisma.$transaction(
+    async (tx) => {
+      const customer = await tx.customer.findUnique({ where: { id: input.customerId } });
+      if (!customer) throw new AppError('Cliente no encontrado', 404);
+      if (customer.companyId !== seller.companyId) throw new AppError('No autorizado', 403);
 
-    // 2. Procesar ítems
-    let subtotal = 0;
-    const saleItemsData: Prisma.SaleItemCreateManySaleInput[] = [];
-    const movementsData: Array<{
-      type: 'sale';
-      quantity: number;
-      previousStock: number;
-      currentStock: number;
-      productName: string;
-      productSku: string;
-      userName: string;
-      productId: number;
-      userId: number;
-      companyId: number;
-    }> = [];
+      let subtotal = 0;
+      const saleItemsData: Prisma.SaleItemCreateManySaleInput[] = [];
+      const movementsData: Array<{
+        type: 'sale';
+        quantity: number;
+        previousStock: number;
+        currentStock: number;
+        productName: string;
+        productSku: string;
+        userName: string;
+        productId: number;
+        userId: number;
+        companyId: number;
+      }> = [];
 
-    for (const item of input.items) {
-      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      for (const item of input.items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product) throw new AppError(`Producto ${item.productId} no encontrado`, 404);
+        if (product.companyId !== seller.companyId) throw new AppError('No autorizado', 403);
+        if (product.status === 'inactive') {
+          throw new AppError(`El producto "${product.name}" no está disponible`, 400);
+        }
+        if (product.stock < item.quantity) {
+          throw new AppError(
+            `Stock insuficiente para "${product.name}". Disponible: ${product.stock}, solicitado: ${item.quantity}`,
+            400
+          );
+        }
 
-      if (!product) throw new AppError(`Producto ${item.productId} no encontrado`, 404);
-      if (product.companyId !== seller.companyId) throw new AppError('No autorizado', 403);
-      if (product.status === 'inactive')
-        throw new AppError(`El producto "${product.name}" no está disponible`, 400);
-      if (product.stock < item.quantity)
-        throw new AppError(
-          `Stock insuficiente para "${product.name}". Disponible: ${product.stock}, solicitado: ${item.quantity}`,
-          400
-        );
+        const unitPrice = Number(product.price);
+        const itemSubtotal = unitPrice * item.quantity;
+        subtotal += itemSubtotal;
+        const newStock = product.stock - item.quantity;
 
-      const unitPrice = Number(product.price);
-      const itemSubtotal = unitPrice * item.quantity;
-      subtotal += itemSubtotal;
-      const newStock = product.stock - item.quantity;
+        saleItemsData.push({
+          productId: product.id,
+          productName: product.name,
+          productSku: product.sku,
+          quantity: item.quantity,
+          unitPrice: product.price,
+          subtotal: itemSubtotal,
+        });
 
-      saleItemsData.push({
-        productId: product.id,
-        productName: product.name,
-        productSku: product.sku,
-        quantity: item.quantity,
-        unitPrice: product.price,
-        subtotal: itemSubtotal,
+        await tx.product.update({ where: { id: product.id }, data: { stock: newStock } });
+
+        movementsData.push({
+          type: 'sale',
+          quantity: -item.quantity,
+          previousStock: product.stock,
+          currentStock: newStock,
+          productName: product.name,
+          productSku: product.sku,
+          userName: sellerName,
+          productId: product.id,
+          userId: seller.userId,
+          companyId: seller.companyId,
+        });
+      }
+
+      const igv = subtotal * IGV_RATE;
+      const total = subtotal + igv;
+
+      const sale = await tx.sale.create({
+        data: {
+          receiptNumber,
+          status: 'completed',
+          subtotal,
+          igv,
+          total,
+          notes: input.notes ?? null,
+          customerName: customer.name,
+          customerDocument: customer.documentNumber,
+          sellerName,
+          customerId: customer.id,
+          sellerId: seller.userId,
+          companyId: seller.companyId,
+          items: { createMany: { data: saleItemsData } },
+        },
+        include: { items: true },
       });
 
-      // Actualizar stock dentro de la transacción
-      await tx.product.update({
-        where: { id: product.id },
-        data: { stock: newStock },
+      await tx.inventoryMovement.createMany({
+        data: movementsData.map((m) => ({ ...m, saleId: sale.id })),
       });
 
-      movementsData.push({
-        type: 'sale',
-        quantity: -item.quantity,
-        previousStock: product.stock,
-        currentStock: newStock,
-        productName: product.name,
-        productSku: product.sku,
-        userName: sellerName,
-        productId: product.id,
-        userId: seller.userId,
-        companyId: seller.companyId,
+      await tx.customer.update({
+        where: { id: customer.id },
+        data: { totalPurchased: { increment: total }, lastPurchaseAt: new Date() },
       });
-    }
 
-    const igv = subtotal * IGV_RATE;
-    const total = subtotal + igv;
-
-    // 3. Crear la venta con sus ítems (nested write)
-    const sale = await tx.sale.create({
-      data: {
-        receiptNumber,
-        status: 'completed',
-        subtotal,
-        igv,
-        total,
-        notes: input.notes ?? null,
-        customerName: customer.name,
-        customerDocument: customer.documentNumber,
-        sellerName,
-        customerId: customer.id,
-        sellerId: seller.userId,
-        companyId: seller.companyId,
-        items: { createMany: { data: saleItemsData } },
-      },
-      include: { items: true },
-    });
-
-    // 4. Registrar movimientos de inventario
-    await tx.inventoryMovement.createMany({
-      data: movementsData.map((m) => ({ ...m, saleId: sale.id })),
-    });
-
-    // 5. Actualizar estadísticas del cliente
-    await tx.customer.update({
-      where: { id: customer.id },
-      data: {
-        totalPurchased: { increment: total },
-        lastPurchaseAt: new Date(),
-      },
-    });
-
-    return sale;
-  });
+      return sale;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
 }
 
 export async function cancelSale(
@@ -226,69 +206,58 @@ export async function cancelSale(
   userId: number,
   userEmail: string
 ) {
-  // Obtener el nombre real del usuario que cancela
-  const cancelUser = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { name: true },
-  });
-  const cancelUserName = cancelUser?.name ?? userEmail;
+  return prisma.$transaction(
+    async (tx) => {
+      const cancelUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { name: true, companyId: true, isActive: true },
+      });
+      if (!cancelUser || !cancelUser.isActive || cancelUser.companyId !== companyId) {
+        throw new AppError('Usuario no válido', 403);
+      }
+      const cancelUserName = cancelUser.name ?? userEmail;
 
-  return prisma.$transaction(async (tx) => {
-    const sale = await tx.sale.findUnique({
-      where: { id },
-      include: { items: true },
-    });
+      const sale = await tx.sale.findUnique({ where: { id }, include: { items: true } });
+      if (!sale) throw new AppError('Venta no encontrada', 404);
+      if (sale.companyId !== companyId) throw new AppError('No autorizado', 403);
+      if (sale.status === 'cancelled') throw new AppError('La venta ya está cancelada', 400);
 
-    if (!sale) throw new AppError('Venta no encontrada', 404);
-    if (sale.companyId !== companyId) throw new AppError('No autorizado', 403);
-    if (sale.status === 'cancelled') throw new AppError('La venta ya está cancelada', 400);
+      for (const item of sale.items) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product) continue;
 
-    // Revertir stock de cada producto
-    for (const item of sale.items) {
-      const product = await tx.product.findUnique({ where: { id: item.productId } });
-      if (!product) continue;
+        const newStock = product.stock + item.quantity;
+        await tx.product.update({ where: { id: item.productId }, data: { stock: newStock } });
 
-      const newStock = product.stock + item.quantity;
+        await tx.inventoryMovement.create({
+          data: {
+            type: 'return',
+            quantity: item.quantity,
+            previousStock: product.stock,
+            currentStock: newStock,
+            reason: `Cancelación de venta ${sale.receiptNumber}`,
+            productName: item.productName,
+            productSku: item.productSku,
+            userName: cancelUserName,
+            productId: item.productId,
+            userId,
+            companyId,
+            saleId: sale.id,
+          },
+        });
+      }
 
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { stock: newStock },
+      await tx.customer.update({
+        where: { id: sale.customerId },
+        data: { totalPurchased: { decrement: Number(sale.total) } },
       });
 
-      await tx.inventoryMovement.create({
-        data: {
-          type: 'return',
-          quantity: item.quantity,
-          previousStock: product.stock,
-          currentStock: newStock,
-          reason: `Cancelación de venta ${sale.receiptNumber}`,
-          productName: item.productName,
-          productSku: item.productSku,
-          userName: cancelUserName,
-          productId: item.productId,
-          userId,
-          companyId,
-          saleId: sale.id,
-        },
+      return tx.sale.update({
+        where: { id },
+        data: { status: 'cancelled' },
+        include: { items: true },
       });
-    }
-
-    // Revertir totalPurchased del cliente
-    const saleTotal = Number(sale.total);
-    await tx.customer.update({
-      where: { id: sale.customerId },
-      data: {
-        totalPurchased: {
-          decrement: saleTotal,
-        },
-      },
-    });
-
-    // Marcar venta como cancelada
-    return tx.sale.update({
-      where: { id },
-      data: { status: 'cancelled' },
-      include: { items: true },
-    });
-  });
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
 }

@@ -1,8 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../utils/AppError';
-import { paginate } from '../utils/pagination';
 import { JwtPayload } from '../middlewares/authenticate';
+import { paginate } from '../utils/pagination';
 
 interface MovementQuery {
   productId?: number;
@@ -67,46 +67,50 @@ export async function getLowStockProducts(companyId: number) {
 }
 
 export async function createMovement(data: CreateMovementData, user: JwtPayload) {
-  const product = await prisma.product.findUnique({ where: { id: data.productId } });
-  if (!product) throw new AppError('Producto no encontrado', 404);
-  if (product.companyId !== user.companyId) throw new AppError('No autorizado', 403);
+  return prisma.$transaction(
+    async (tx) => {
+      // Read the product inside the serializable transaction so concurrent
+      // stock adjustments cannot calculate from the same stale stock value.
+      const product = await tx.product.findUnique({ where: { id: data.productId } });
+      if (!product) throw new AppError('Producto no encontrado', 404);
+      if (product.companyId !== user.companyId) throw new AppError('No autorizado', 403);
 
-  const newStock = product.stock + data.quantity;
-  if (newStock < 0) {
-    throw new AppError(
-      `Stock insuficiente. Stock actual: ${product.stock}, ajuste solicitado: ${data.quantity}`,
-      400
-    );
-  }
+      const newStock = product.stock + data.quantity;
+      if (newStock < 0) {
+        throw new AppError(
+          `Stock insuficiente. Stock actual: ${product.stock}, ajuste solicitado: ${data.quantity}`,
+          400
+        );
+      }
 
-  // Obtener el nombre real del usuario
-  const userRecord = await prisma.user.findUnique({
-    where: { id: user.userId },
-    select: { name: true },
-  });
-  const userName = userRecord?.name ?? user.email;
+      const userRecord = await tx.user.findUnique({
+        where: { id: user.userId },
+        select: { name: true },
+      });
+      const userName = userRecord?.name ?? user.email;
 
-  return prisma.$transaction(async (tx) => {
-    await tx.product.update({
-      where: { id: product.id },
-      data: { stock: newStock },
-    });
+      await tx.product.update({
+        where: { id: product.id },
+        data: { stock: newStock },
+      });
 
-    return tx.inventoryMovement.create({
-      data: {
-        type: data.type,
-        quantity: data.quantity,
-        previousStock: product.stock,
-        currentStock: newStock,
-        reason: data.reason ?? null,
-        productName: product.name,
-        productSku: product.sku,
-        userName,
-        productId: product.id,
-        userId: user.userId,
-        companyId: user.companyId,
-        saleId: null,
-      },
-    });
-  });
+      return tx.inventoryMovement.create({
+        data: {
+          type: data.type,
+          quantity: data.quantity,
+          previousStock: product.stock,
+          currentStock: newStock,
+          reason: data.reason ?? null,
+          productName: product.name,
+          productSku: product.sku,
+          userName,
+          productId: product.id,
+          userId: user.userId,
+          companyId: user.companyId,
+          saleId: null,
+        },
+      });
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
 }
