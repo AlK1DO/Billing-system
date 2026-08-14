@@ -63,15 +63,17 @@ export async function getProductById(id: number, companyId: number) {
 
   if (!product) throw new AppError('Producto no encontrado', 404);
   if (product.companyId !== companyId) throw new AppError('No autorizado', 403);
-
   return product;
 }
 
+async function ensureCategoryBelongsToCompany(categoryId: number, companyId: number) {
+  const category = await prisma.category.findFirst({ where: { id: categoryId, companyId } });
+  if (!category) throw new AppError('Categoría no encontrada', 404);
+}
+
 export async function createProduct(data: CreateProductData) {
-  // Verificar que la categoría existe si se proporcionó
-  if (data.categoryId) {
-    const cat = await prisma.category.findUnique({ where: { id: data.categoryId } });
-    if (!cat) throw new AppError('Categoría no encontrada', 404);
+  if (data.categoryId !== undefined && data.categoryId !== null) {
+    await ensureCategoryBelongsToCompany(data.categoryId, data.companyId);
   }
 
   return prisma.product.create({
@@ -92,26 +94,16 @@ export async function createProduct(data: CreateProductData) {
   });
 }
 
-export async function updateProduct(
-  id: number,
-  companyId: number,
-  data: UpdateProductData
-) {
-  // Verificar que existe y pertenece a la empresa
+export async function updateProduct(id: number, companyId: number, data: UpdateProductData) {
   await getProductById(id, companyId);
 
-  // Verificar que la categoría existe si se cambia
   if (data.categoryId !== undefined && data.categoryId !== null) {
-    const cat = await prisma.category.findUnique({ where: { id: data.categoryId } });
-    if (!cat) throw new AppError('Categoría no encontrada', 404);
+    await ensureCategoryBelongsToCompany(data.categoryId, companyId);
   }
 
   return prisma.product.update({
     where: { id },
-    data: {
-      ...data,
-      // Prisma lanza P2002 automáticamente si el SKU viola el @@unique([sku, companyId])
-    },
+    data,
     include: { category: { select: { id: true, name: true } } },
   });
 }
