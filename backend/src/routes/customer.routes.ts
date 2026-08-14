@@ -11,7 +11,6 @@ import {
 } from '../validators/customer.validator';
 
 const router = Router();
-
 router.use(authenticate);
 
 /**
@@ -27,10 +26,10 @@ router.use(authenticate);
  *         description: Buscar por nombre, correo o número de documento
  *       - in: query
  *         name: page
- *         schema: { type: integer, default: 1 }
+ *         schema: { type: integer, default: 1, minimum: 1 }
  *       - in: query
  *         name: limit
- *         schema: { type: integer, default: 20 }
+ *         schema: { type: integer, default: 20, minimum: 1 }
  *     responses:
  *       200:
  *         description: Lista paginada de clientes
@@ -40,12 +39,8 @@ router.use(authenticate);
  *               type: object
  *               properties:
  *                 success: { type: boolean }
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Customer'
- *                 meta:
- *                   $ref: '#/components/schemas/PaginationMeta'
+ *                 data: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+ *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
  */
 router.get('/', validate(customerQuerySchema), customerController.getCustomers);
 
@@ -59,19 +54,10 @@ router.get('/', validate(customerQuerySchema), customerController.getCustomers);
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema: { type: integer }
  *     responses:
- *       200:
- *         description: Datos del cliente
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 data: { $ref: '#/components/schemas/Customer' }
- *       404:
- *         description: Cliente no encontrado
+ *       200: { description: Cliente encontrado }
+ *       404: { description: Cliente no encontrado }
  */
 router.get('/:id', validate(customerParamsSchema), customerController.getCustomer);
 
@@ -85,21 +71,17 @@ router.get('/:id', validate(customerParamsSchema), customerController.getCustome
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             type: object
- *             required: [name, documentType, documentNumber]
- *             properties:
- *               name: { type: string }
- *               email: { type: string }
- *               phone: { type: string }
- *               address: { type: string }
- *               documentType: { type: string, enum: [DNI, RUC, CE, PASSPORT] }
- *               documentNumber: { type: string }
+ *           schema: { $ref: '#/components/schemas/CreateCustomerRequest' }
+ *           example:
+ *             name: Juan Pérez
+ *             documentType: DNI
+ *             documentNumber: '12345678'
+ *             phone: '999888777'
+ *             email: juan@example.com
+ *             address: Lima, Perú
  *     responses:
- *       201:
- *         description: Cliente creado
- *       409:
- *         description: Número de documento ya registrado
+ *       201: { description: Cliente creado }
+ *       409: { description: Número de documento ya registrado }
  */
 router.post('/', validate(createCustomerSchema), customerController.createCustomer);
 
@@ -113,10 +95,15 @@ router.post('/', validate(createCustomerSchema), customerController.createCustom
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/UpdateCustomerRequest' }
  *     responses:
- *       200:
- *         description: Cliente actualizado
+ *       200: { description: Cliente actualizado }
+ *       404: { description: Cliente no encontrado }
  */
 router.put('/:id', validate(updateCustomerSchema), customerController.updateCustomer);
 
@@ -130,18 +117,11 @@ router.put('/:id', validate(updateCustomerSchema), customerController.updateCust
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: string }
+ *         schema: { type: integer }
  *     responses:
- *       200:
- *         description: Cliente eliminado
- *       404:
- *         description: Cliente no encontrado
+ *       200: { description: Cliente eliminado }
+ *       404: { description: Cliente no encontrado }
  */
-router.delete(
-  '/:id',
-  authorize('admin'),
-  validate(customerParamsSchema),
-  customerController.deleteCustomer
-);
+router.delete('/:id', authorize('admin'), validate(customerParamsSchema), customerController.deleteCustomer);
 
 export default router;
