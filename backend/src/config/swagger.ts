@@ -33,6 +33,10 @@ const options: swaggerJsdoc.Options = {
 const swaggerSpec = swaggerJsdoc(options);
 
 export function setupSwagger(app: Express): void {
+  // Swagger is intentionally available only during development.
+  // In production the documentation and its JSON specification are not exposed.
+  if (process.env.NODE_ENV === 'production') return;
+
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get('/api/docs.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
