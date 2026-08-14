@@ -6,7 +6,6 @@ import { validate } from '../middlewares/validate';
 import { createMovementSchema, movementQuerySchema } from '../validators/inventory.validator';
 
 const router = Router();
-
 router.use(authenticate);
 
 /**
@@ -18,21 +17,6 @@ router.use(authenticate);
  *     responses:
  *       200:
  *         description: Listas de productos con stock bajo y agotados
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 data:
- *                   type: object
- *                   properties:
- *                     lowStock:
- *                       type: array
- *                       items: { $ref: '#/components/schemas/Product' }
- *                     outOfStock:
- *                       type: array
- *                       items: { $ref: '#/components/schemas/Product' }
  */
 router.get('/', inventoryController.getInventory);
 
@@ -45,7 +29,7 @@ router.get('/', inventoryController.getInventory);
  *     parameters:
  *       - in: query
  *         name: productId
- *         schema: { type: string }
+ *         schema: { type: integer }
  *       - in: query
  *         name: type
  *         schema: { type: string, enum: [entry, sale, return, adjustment] }
@@ -62,18 +46,7 @@ router.get('/', inventoryController.getInventory);
  *         name: limit
  *         schema: { type: integer, default: 20 }
  *     responses:
- *       200:
- *         description: Lista paginada de movimientos
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean }
- *                 data:
- *                   type: array
- *                   items: { $ref: '#/components/schemas/InventoryMovement' }
- *                 meta: { $ref: '#/components/schemas/PaginationMeta' }
+ *       200: { description: Lista paginada de movimientos }
  */
 router.get('/movements', validate(movementQuerySchema), inventoryController.getMovements);
 
@@ -87,31 +60,17 @@ router.get('/movements', validate(movementQuerySchema), inventoryController.getM
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             type: object
- *             required: [productId, type, quantity]
- *             properties:
- *               productId: { type: string }
- *               type:
- *                 type: string
- *                 enum: [entry, return, adjustment]
- *               quantity:
- *                 type: integer
- *                 description: Positivo para entrada, negativo para salida
- *               reason: { type: string }
+ *           schema: { $ref: '#/components/schemas/CreateMovementRequest' }
+ *           example:
+ *             productId: 1
+ *             type: entry
+ *             quantity: 10
+ *             reason: Compra de mercadería
  *     responses:
- *       201:
- *         description: Movimiento registrado y stock actualizado
- *       400:
- *         description: Stock insuficiente
- *       404:
- *         description: Producto no encontrado
+ *       201: { description: Movimiento registrado y stock actualizado }
+ *       400: { description: Stock insuficiente }
+ *       404: { description: Producto no encontrado }
  */
-router.post(
-  '/movements',
-  authorize('admin'),
-  validate(createMovementSchema),
-  inventoryController.createMovement
-);
+router.post('/movements', authorize('admin'), validate(createMovementSchema), inventoryController.createMovement);
 
 export default router;
