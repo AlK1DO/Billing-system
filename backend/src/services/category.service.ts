@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../utils/AppError';
 
@@ -16,12 +17,30 @@ export async function getCategoryById(id: number, companyId: number) {
 }
 
 export async function createCategory(name: string, companyId: number) {
-  return prisma.category.create({ data: { name, companyId } });
+  try {
+    return await prisma.category.create({ data: { name: name.trim(), companyId } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new AppError('Ya existe una categoría con ese nombre en esta empresa', 409);
+    }
+    throw error;
+  }
 }
 
 export async function updateCategory(id: number, name: string, companyId: number) {
   await getCategoryById(id, companyId);
-  return prisma.category.update({ where: { id }, data: { name } });
+
+  try {
+    return await prisma.category.update({
+      where: { id },
+      data: { name: name.trim() },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new AppError('Ya existe una categoría con ese nombre en esta empresa', 409);
+    }
+    throw error;
+  }
 }
 
 export async function deleteCategory(id: number, companyId: number) {
