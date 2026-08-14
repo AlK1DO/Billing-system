@@ -19,14 +19,24 @@ const router = Router();
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - email
+ *               - password
  *             properties:
  *               email:
  *                 type: string
+ *                 format: email
+ *                 example: usuario@ejemplo.com
  *               password:
  *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: "123456789"
  *     responses:
  *       200:
  *         description: Login exitoso con token JWT
+ *       401:
+ *         description: Credenciales inválidas
  */
 router.post('/login', validate(loginSchema), authController.login);
 
@@ -37,6 +47,48 @@ router.post('/login', validate(loginSchema), authController.login);
  *     summary: Registrar nueva empresa y usuario administrador
  *     tags: [Auth]
  *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - companyName
+ *               - email
+ *               - password
+ *               - confirmPassword
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 2
+ *                 example: Keller Robles
+ *               companyName:
+ *                 type: string
+ *                 minLength: 2
+ *                 example: The House Dev
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: usuario@ejemplo.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: "123456789"
+ *               confirmPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 example: "123456789"
+ *     responses:
+ *       201:
+ *         description: Empresa y usuario administrador registrados correctamente
+ *       400:
+ *         description: Datos de registro inválidos
+ *       409:
+ *         description: El correo ya está registrado
  */
 router.post('/register', validate(registerSchema), authController.register);
 
