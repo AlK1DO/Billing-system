@@ -2,9 +2,16 @@ import { Router } from 'express';
 import * as authController from '../controllers/auth.controller';
 import { validate } from '../middlewares/validate';
 import { authenticate } from '../middlewares/authenticate';
+import { rateLimit } from '../middlewares/rateLimit';
 import { loginSchema, registerSchema } from '../validators/auth.validator';
 
 const router = Router();
+
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Demasiados intentos de autenticación. Intenta nuevamente en unos minutos.',
+});
 
 /**
  * @swagger
@@ -31,12 +38,10 @@ const router = Router();
  *                 minLength: 6
  *                 example: DemoPassword123!
  *     responses:
- *       200:
- *         description: Login exitoso con token JWT
- *       401:
- *         description: Credenciales inválidas
+ *       200: { description: Login exitoso con token JWT }
+ *       401: { description: Credenciales inválidas }
  */
-router.post('/login', validate(loginSchema), authController.login);
+router.post('/login', authRateLimit, validate(loginSchema), authController.login);
 
 /**
  * @swagger
@@ -76,14 +81,11 @@ router.post('/login', validate(loginSchema), authController.login);
  *                 minLength: 6
  *                 example: DemoPassword123!
  *     responses:
- *       201:
- *         description: Empresa y usuario administrador registrados correctamente
- *       400:
- *         description: Datos de registro inválidos
- *       409:
- *         description: El correo ya está registrado
+ *       201: { description: Empresa y usuario administrador registrados correctamente }
+ *       400: { description: Datos de registro inválidos }
+ *       409: { description: El correo ya está registrado }
  */
-router.post('/register', validate(registerSchema), authController.register);
+router.post('/register', authRateLimit, validate(registerSchema), authController.register);
 
 /**
  * @swagger
@@ -94,10 +96,8 @@ router.post('/register', validate(registerSchema), authController.register);
  *     security:
  *       - bearerAuth: []
  *     responses:
- *       200:
- *         description: Usuario autenticado sin información sensible
- *       401:
- *         description: Token inválido o ausente
+ *       200: { description: Usuario autenticado sin información sensible }
+ *       401: { description: Token inválido o ausente }
  */
 router.get('/me', authenticate, authController.me);
 
